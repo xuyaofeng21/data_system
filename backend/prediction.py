@@ -84,6 +84,21 @@ class DurationPredictor:
         return int(prediction[0])
         
     def get_metrics(self):
-        return self.metrics
+        # 计算准确率百分比 (基于 R2 score)
+        rf_r2 = self.metrics["rf"]["r2"]
+        lr_r2 = self.metrics["lr"]["r2"]
+        # R2 通常在 0-1 之间，转换为百分比
+        rf_accuracy = max(0, rf_r2 * 100) if rf_r2 > 0 else 0
+        lr_accuracy = max(0, lr_r2 * 100) if lr_r2 > 0 else 0
+        
+        return {
+            "rf": self.metrics["rf"],
+            "lr": self.metrics["lr"],
+            "accuracy": {
+                "random_forest": round(rf_accuracy, 1),
+                "linear_regression": round(lr_accuracy, 1),
+                "best_model": "random_forest" if rf_r2 >= lr_r2 else "linear_regression"
+            }
+        }
 
 predictor = DurationPredictor()

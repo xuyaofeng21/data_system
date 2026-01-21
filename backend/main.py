@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, File, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -268,6 +269,48 @@ def get_stats(db: Session = Depends(database.get_db)):
         "accuracy_data": accuracy_data
     }
 
+@app.get("/dashboard/overview")
+def get_overview(db: Session = Depends(database.get_db)):
+    """
+    获取运营指挥中心所需的真实统计数据
+    """
+    from datetime import datetime, timedelta
+    
+    # 1. 总流程数 (所有实例数量)
+    total_workflows = db.query(models.WorkflowInstance).count()
+    
+    # 2. 活跃实例 (状态为Running的实例)
+    active_instances = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.status == models.WorkflowStatus.RUNNING
+    ).count()
+    
+    # 3. 今日完成 (今天完成的所有实例数)
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    completed_today = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.status == models.WorkflowStatus.COMPLETED,
+        models.WorkflowInstance.end_time >= today_start
+    ).count()
+    
+    # 4. 平均耗时 (所有已完成实例的平均耗时，单位：分钟)
+    completed_executions = db.query(models.NodeExecution).filter(
+        models.NodeExecution.status == models.NodeStatus.COMPLETED,
+        models.NodeExecution.actual_duration != None
+    ).all()
+    
+    if completed_executions:
+        total_duration = sum(ex.actual_duration for ex in completed_executions)
+        avg_duration_seconds = total_duration / len(completed_executions)
+        avg_duration_minutes = round(avg_duration_seconds / 60, 1)
+    else:
+        avg_duration_minutes = 0
+    
+    return {
+        "total_workflows": total_workflows,
+        "active_instances": active_instances,
+        "completed_today": completed_today,
+        "average_duration": avg_duration_minutes
+    }
+
 @app.get("/analytics/benchmarks")
 def get_benchmarks(db: Session = Depends(database.get_db)):
     # Ensure model is trained (lazy training if needed, though usually done on completion)
@@ -289,3 +332,36 @@ def get_system_logs(db: Session = Depends(database.get_db), current_user: models
         "details": l.details,
         "created_at": l.created_at
     } for l in logs]
+
+# --- System Maintenance API ---
+@app.post("/system/backup")
+def backup_database(current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can perform backup")
+    
+    # Simple backup for SQLite/File based. 
+    # For MySQL, we would use mysqldump command
+    import subprocess
+    
+    # Assuming MySQL is used as per recent config
+    # This command requires mysqldump to be in PATH
+    backup_file = f"backup_{datetime.now().strftime('%Y%m%d%H%M%S')}.sql"
+    
+    try:
+        # NOTE: Password provided in command line is insecure for production, use config file in real scenario
+        # Also ensure 'mysqldump' is available in the system environment
+        cmd = f"mysqldump -u root -p123456 -h localhost data_system > {backup_file}"
+        subprocess.run(cmd, shell=True, check=True)
+        
+        return FileResponse(path=backup_file, filename=backup_file, media_type='application/octet-stream')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
+
+@app.post("/system/restore")
+def restore_database(file: bytes = File(...), current_user: models.User = Depends(auth.get_current_user)):
+    # This is a complex feature requiring file upload handling and running mysql import
+    # For this demo scope, we acknowledge the requirement.
+    if current_user.role != "admin":
+         raise HTTPException(status_code=403, detail="Only admins can restore database")
+    return {"message": "Restore function placeholder. Please contact admin for manual restore."}
+

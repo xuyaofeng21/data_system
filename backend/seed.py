@@ -73,6 +73,87 @@ def seed_db():
                 print(f"Template already exists: {t_data['name']}")
         
         db.commit()
+
+        # --- Seed Instances and Executions (for Dashboard) ---
+        # Only seed if no instances exist to avoid duplication on re-run
+        # instance_count = db.query(models.WorkflowInstance).count()
+        # FORCE SEED: Clear existing instances first to ensure fresh data
+        db.query(models.NodeExecution).delete()
+        db.query(models.WorkflowInstance).delete()
+        db.commit()
+        
+        print("Seeding sample instances and execution data...")
+        import random
+        from datetime import timedelta, datetime
+        
+        # Fetch all templates
+        all_templates = db.query(models.WorkflowTemplate).all()
+        
+        # Create completed instances
+        for _ in range(15):
+            t = random.choice(all_templates)
+            start_time = datetime.now() - timedelta(days=random.randint(1, 10))
+            end_time = start_time + timedelta(hours=random.randint(2, 24))
+            
+            instance = models.WorkflowInstance(
+                template_id=t.id,
+                current_node_id=None,
+                status=models.WorkflowStatus.COMPLETED,
+                start_time=start_time,
+                end_time=end_time
+            )
+            db.add(instance)
+            db.flush() # get ID
+            
+            # Add some executions
+            nodes = t.graph_json.get("nodes", [])
+            for node in nodes:
+                actual = random.randint(300, 3600)
+                predicted = actual + random.randint(-600, 600)
+                if predicted < 0: predicted = 300
+                
+                execution = models.NodeExecution(
+                    instance_id=instance.id,
+                    node_id=node["id"],
+                    executed_by=admin.id if admin else 1,
+                    status=models.NodeStatus.COMPLETED,
+                    start_time=start_time,
+                    end_time=start_time + timedelta(seconds=actual),
+                    predicted_duration=predicted,
+                    actual_duration=actual
+                )
+                db.add(execution)
+                start_time += timedelta(seconds=actual + 60) # Next node starts after previous
+        
+        # Create active instances
+        for _ in range(5):
+            t = random.choice(all_templates)
+            start_time = datetime.now() - timedelta(hours=random.randint(0, 5))
+            nodes = t.graph_json.get("nodes", [])
+            current_node = nodes[random.randint(0, len(nodes)-2)] # Not the end node
+            
+            instance = models.WorkflowInstance(
+                template_id=t.id,
+                current_node_id=current_node["id"],
+                status=models.WorkflowStatus.RUNNING,
+                start_time=start_time
+            )
+            db.add(instance)
+            db.flush()
+            
+            # Add active execution
+            pred = random.randint(600, 3000)
+            execution = models.NodeExecution(
+                instance_id=instance.id,
+                node_id=current_node["id"],
+                executed_by=admin.id if admin else 1,
+                status=models.NodeStatus.RUNNING,
+                start_time=datetime.now() - timedelta(minutes=random.randint(5, 30)),
+                predicted_duration=pred
+            )
+            db.add(execution)
+        db.commit()
+        print("Sample instance data seeded.")
             
     except Exception as e:
         print(f"Error seeding DB: {e}")

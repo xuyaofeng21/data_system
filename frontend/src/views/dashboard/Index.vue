@@ -121,16 +121,37 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
+import api from '../../api'
 
-// --- Mock Data ---
-
-// 1. KPI Data
+// KPI Data - 将从后端获取真实数据
 const kpiData = ref([
-  { title: '总流程数', value: '328', icon: 'Files' },
-  { title: '活跃实例', value: '45', icon: 'Cpu' },
-  { title: '今日完成', value: '12', icon: 'Check' },
-  { title: '平均耗时', value: '4.2h', icon: 'Timer' }
+  { title: '总流程数', value: '0', icon: 'Files' },
+  { title: '活跃实例', value: '0', icon: 'Cpu' },
+  { title: '今日完成', value: '0', icon: 'Check' },
+  { title: '平均耗时', value: '0m', icon: 'Timer' }
 ])
+
+// 获取真实统计数据
+const fetchOverview = async () => {
+  try {
+    const res = await api.get('/dashboard/overview')
+    kpiData.value = [
+      { title: '总流程数', value: String(res.data.total_workflows), icon: 'Files' },
+      { title: '活跃实例', value: String(res.data.active_instances), icon: 'Cpu' },
+      { title: '今日完成', value: String(res.data.completed_today), icon: 'Check' },
+      { title: '平均耗时', value: `${res.data.average_duration}m`, icon: 'Timer' }
+    ]
+  } catch (e) {
+    console.error('获取统计数据失败:', e)
+    // 失败时使用默认值
+    kpiData.value = [
+      { title: '总流程数', value: '-', icon: 'Files' },
+      { title: '活跃实例', value: '-', icon: 'Cpu' },
+      { title: '今日完成', value: '-', icon: 'Check' },
+      { title: '平均耗时', value: '-', icon: 'Timer' }
+    ]
+  }
+}
 
 // 2. Resource Load Data
 const resourceLoadData = ref([
@@ -188,8 +209,13 @@ const getStatusType = (status: string) => {
   return 'info'
 }
 
-const refreshData = () => {
-  ElMessage.success('数据已更新')
+const refreshData = async () => {
+  try {
+    await fetchOverview()
+    ElMessage.success('数据已更新')
+  } catch (e) {
+    ElMessage.error('数据更新失败')
+  }
 }
 
 // --- ECharts Implementation ---
@@ -279,6 +305,7 @@ const initChart = () => {
 
 onMounted(() => {
   initChart()
+  fetchOverview()  // 获取真实统计数据
   window.addEventListener('resize', handleResize)
 })
 
